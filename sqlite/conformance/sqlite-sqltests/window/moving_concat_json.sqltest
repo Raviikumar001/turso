@@ -119,8 +119,11 @@ setup empty_concat_middle_values {
     INSERT INTO t VALUES (1,'a'),(2,''),(3,'b'),(4,''),(5,'c');
 }
 
+# An empty string still in the frame after the text is used up must keep its
+# separator. SQLite 3.50.4 drops it; SQLite fixed this in check-in 2f794cf18a.
 @setup empty_concat_middle_values
 @cross-check-integrity
+@skip-if sqlite "SQLite before check-in 2f794cf18a drops the separator of an empty string left in the frame"
 test moving-group-concat-step-after-text-emptied {
     SELECT id,
            quote(group_concat(v) OVER (ORDER BY id ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING)),
@@ -129,10 +132,34 @@ test moving-group-concat-step-after-text-emptied {
 }
 expect {
     1|'a,'|'a'
-    2|'b'|'a--'
-    3|''|'b'
-    4|'c'|''
-    5|''|'c'
+    2|',b'|'a--'
+    3|'b,'|'--b'
+    4|',c'|'b--'
+    5|'c'|'--c'
+}
+
+# Removing an empty string must not cut into a multi-byte character after it.
+setup empty_concat_before_multibyte_values {
+    CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT);
+    INSERT INTO t VALUES (1,'a'),(2,''),(3,'éa'),(4,'b');
+}
+
+@setup empty_concat_before_multibyte_values
+@cross-check-integrity
+@skip-if sqlite "SQLite before check-in 2f794cf18a drops the separator of an empty string left in the frame"
+test moving-group-concat-empty-string-before-multibyte-text {
+    SELECT id,
+           quote(group_concat(v) OVER w),
+           quote(string_agg(v, '-') OVER w)
+    FROM t
+    WINDOW w AS (ORDER BY id ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    ORDER BY id;
+}
+expect {
+    1|'a,'|'a-'
+    2|',éa'|'-éa'
+    3|'éa,b'|'éa-b'
+    4|'b'|'b'
 }
 
 setup peer_values {

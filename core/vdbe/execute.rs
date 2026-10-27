@@ -9348,10 +9348,16 @@ fn inverse_agg_payload(func: &AggFunc, arg: Value, payload: &mut [Value]) -> Res
                 )));
             }
             if remove_len >= accumulated_len {
-                *acc = Value::Null;
-                separator_lengths.clear();
+                text.value.to_mut().clear();
             } else {
                 text.value.to_mut().drain(..remove_len);
+            }
+            // Like SQLite, go back to "no values yet" only when the frame is empty. Empty strings
+            // can still be in the frame after the text is used up, and the next value must still
+            // be joined to them with a separator.
+            if *count == 0 {
+                *acc = Value::Null;
+                separator_lengths.clear();
             }
         }
         AggFunc::Min
