@@ -2951,12 +2951,20 @@ impl Jsonb {
 
                                 self.data
                                     .splice(arr_pos..arr_pos, placeholder_bytes.iter().copied());
+                                let header_delta = self.grow_array_header(
+                                    pos,
+                                    root_size,
+                                    root_header_size,
+                                    placeholder_bytes.len(),
+                                )?;
 
                                 return Ok(JsonTraversalResult::with_array_index(
                                     pos,
                                     JsonLocationKind::DocumentRoot,
-                                    placeholder_bytes.len() as isize,
-                                    arr_pos,
+                                    placeholder_bytes.len() as isize + header_delta,
+                                    arr_pos
+                                        .checked_add_signed(header_delta)
+                                        .expect("array contents cannot move before the header"),
                                 ));
                             }
 
@@ -3007,12 +3015,20 @@ impl Jsonb {
 
                             self.data
                                 .splice(end_pos..end_pos, placeholder_bytes.iter().copied());
+                            let header_delta = self.grow_array_header(
+                                pos,
+                                root_size,
+                                root_header_size,
+                                placeholder_bytes.len(),
+                            )?;
 
                             return Ok(JsonTraversalResult::with_array_index(
                                 pos,
                                 JsonLocationKind::DocumentRoot,
-                                placeholder_bytes.len() as isize,
-                                end_pos,
+                                placeholder_bytes.len() as isize + header_delta,
+                                end_pos
+                                    .checked_add_signed(header_delta)
+                                    .expect("array contents cannot move before the header"),
                             ));
                         }
                         _ => unreachable!(),
@@ -3245,6 +3261,22 @@ impl Jsonb {
         };
 
         Err(LimboError::ParseError("Not found".to_string()))
+    }
+
+    /// Rewrites the header of the array at `array_idx` after `added` bytes
+    /// were inserted into it, and returns how many bytes the header grew
+    /// (or shrank, when the old header was not minimal). Everything after
+    /// the header moves by that amount.
+    fn grow_array_header(
+        &mut self,
+        array_idx: usize,
+        old_size: usize,
+        old_header_size: usize,
+        added: usize,
+    ) -> Result<isize> {
+        let new_header_size =
+            self.write_element_header(array_idx, ElementType::ARRAY, old_size + added, true)?;
+        Ok(new_header_size as isize - old_header_size as isize)
     }
 
     fn skip_element(&self, pos: usize) -> Result<usize> {
